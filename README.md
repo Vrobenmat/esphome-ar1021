@@ -5,6 +5,7 @@ Place in your ESPHome root directory (/config/esphome for Home Assitant) under .
 
 Minimal example YAML looks like this:
 
+```yaml
 globals:
   - id: tscal
     type: int
@@ -132,3 +133,4 @@ button:
         - component.update: lcd
         - lambda: |-
             id(ar1021ts).calibrate();
+```
