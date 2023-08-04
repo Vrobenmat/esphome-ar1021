@@ -1,5 +1,5 @@
 # esphome-ar1021
-ESPHome custom component to support the AR1021 touch controller over SPI. Interrupt driven and support for calibration and backlight control. Assumes calibration point register is default (12.5%) Very hacky at the moment and needs a clean, but it works with an Olimex MOD-LCD2 with SJ2 cut & soldered and SJ3 soldered.
+ESPHome custom component to support the AR1021 touch controller over i2c. Interrupt driven and support for calibration and backlight control. Assumes calibration point register is default (12.5%) Very hacky at the moment and needs a clean, but it works with an Olimex MOD-LCD2 with SJ2 cut & soldered and SJ3 soldered.
 
 Place in your ESPHome root directory (/config/esphome for Home Assitant) under ./custom_components/ar1021
 
