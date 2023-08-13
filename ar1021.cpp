@@ -78,6 +78,7 @@ void AR1021Component::loop() {
   i2c::ErrorCode err;
   std::string out = {};
   TouchPoint tp;
+  bool tor;
   
   switch (calstate) {
     case 1:
@@ -146,7 +147,7 @@ void AR1021Component::loop() {
       err = this->read(buffer, 4);
       ERROR_CHECK(err);
       out = format_hex_pretty(buffer, 4);
-      ESP_LOGD(TAG, "wait completion: %s", out);
+      ESP_LOGD(TAG, "wait completion: %s", out.c_str());
       if (std::equal(std::begin(buffer), std::end(buffer), std::begin(CALCONFIRM))) {
         calstate = 0;
         ESP_LOGD(TAG, "calibration complete");
@@ -171,11 +172,12 @@ void AR1021Component::loop() {
   tp.id = bigbuff[0];
   tp.state = 0x09;
   out = format_hex_pretty(bigbuff, 5);
-  ESP_LOGD(TAG, "raw touch: %s", out);
+  ESP_LOGD(TAG, "raw touch: %s", out.c_str());
 
   uint16_t y = (uint16_t) ((bigbuff[4] << 7) | (bigbuff[3]));
   uint16_t x = (uint16_t) ((bigbuff[2] << 7) | (bigbuff[1]));
 
+  tor = bigbuff[0] & 1;
   y = (y * this->display_->get_height()) / 0xfff;
   x = (x * this->display_->get_width()) / 0xfff;
 
@@ -200,8 +202,13 @@ void AR1021Component::loop() {
       tp.y = this->display_width_ - x;
       break;
   }
-
-  this->defer([this, tp]() { this->send_touch_(tp); });
+  
+  if (tor) {
+    this->defer([this, tp]() { this->send_touch_(tp); });
+  } else {
+    for (auto *listener : this->touch_listeners_)
+      listener->release();
+  }
 
   this->status_clear_warning();  
 }
