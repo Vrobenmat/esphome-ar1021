@@ -45,17 +45,18 @@ static const uint8_t CALCONFIRM[4] = {0x55, 0x02, 0x00, 0x14};
     return; \
   }
 
-void Store::gpio_intr(Store *store) { store->touch = true; }
+//void Store::gpio_intr(Store *store) { store->touch = true; }
 
 float AR1021Component::get_setup_priority() const { return setup_priority::HARDWARE; }
 
 void AR1021Component::setup() {
     uint8_t buffer[4] = {0};
     ESP_LOGCONFIG(TAG, "Setting up AR1021 touchscreen...");
-    this->interrupt_pin_->pin_mode(gpio::FLAG_INPUT | gpio::FLAG_PULLDOWN);
+    this->interrupt_pin_->pin_mode(gpio::FLAG_INPUT | gpio::FLAG_PULLUP);
     this->interrupt_pin_->setup();
-    this->store_.pin = this->interrupt_pin_->to_isr();
-    this->interrupt_pin_->attach_interrupt(Store::gpio_intr, &this->store_, gpio::INTERRUPT_RISING_EDGE);
+//    this->store_.pin = this->interrupt_pin_->to_isr();
+//    this->interrupt_pin_->attach_interrupt(Store::gpio_intr, &this->store_, gpio::INTERRUPT_RISING_EDGE);
+    this->attach_interrupt_(this->interrupt_pin_, gpio::INTERRUPT_RISING_EDGE);
 
     if (this->write(nullptr, 0) != i2c::ERROR_OK) {
         ESP_LOGE(TAG, "Failed to communicate!");
@@ -70,15 +71,27 @@ void AR1021Component::setup() {
     err = this->read(buffer, 4);
     ERROR_CHECK(err);
     //fixup actually check success, 0x55 0x02 0x00 0x12
+
+    if (this->display_ != nullptr) {
+        if (this->x_raw_max_ == this->x_raw_min_) {
+        this->x_raw_max_ = this->display_->get_native_width();
+    }
+        if (this->y_raw_max_ == this->y_raw_min_) {
+        this->y_raw_max_ = this->display_->get_native_height();
+    }
+  }
+
+  //this->store_.touched = true;
 }
 
-void AR1021Component::loop() {
+//void AR1021Component::loop() {
+void AR1021Component::update_touches() {
   
   uint8_t buffer[4] = {0};
   i2c::ErrorCode err;
   std::string out = {};
-  TouchPoint tp;
-  bool tor;
+//  TouchPoint tp;
+//  bool tor;
   
   switch (calstate) {
     case 1:
@@ -96,11 +109,15 @@ void AR1021Component::loop() {
       ERROR_CHECK(err);
       if (std::equal(std::begin(buffer), std::end(buffer), std::begin(CALCONFIRM))) {
         calstate = 3;
-        tp.id = 0;
-        tp.state = 3;
-        tp.x = 0;
-        tp.y = 0;
-        this->defer([this, tp]() { this->send_touch_(tp); });
+//        tp.id = 0;
+//        tp.state = 3;
+//        tp.x = 0;
+//        tp.y = 0;
+//        this->defer([this, tp]() { this->send_touch_(tp); });
+        this->touches_.clear();
+        this->was_touched_ = false;
+        this->first_touch_ = true;
+        this->add_raw_touch_position_(3, 0, 0);
         ESP_LOGD(TAG, "calibration 1");
       }
       return;
@@ -109,11 +126,15 @@ void AR1021Component::loop() {
       ERROR_CHECK(err);
       if (std::equal(std::begin(buffer), std::end(buffer), std::begin(CALCONFIRM))) {
         calstate = 4;
-        tp.id = 0;
-        tp.state = 4;
-        tp.x = 0;
-        tp.y = 0;
-        this->defer([this, tp]() { this->send_touch_(tp); });
+//        tp.id = 0;
+//        tp.state = 4;
+//        tp.x = 0;
+//        tp.y = 0;
+//        this->defer([this, tp]() { this->send_touch_(tp); });
+        this->touches_.clear();
+        this->was_touched_ = false;
+        this->first_touch_ = true;
+        this->add_raw_touch_position_(4, 0, 0);
         ESP_LOGD(TAG, "calibration 2");
       }
       return;
@@ -122,11 +143,15 @@ void AR1021Component::loop() {
       ERROR_CHECK(err);
       if (std::equal(std::begin(buffer), std::end(buffer), std::begin(CALCONFIRM))) {
         calstate = 5;
-        tp.id = 0;
-        tp.state = 5;
-        tp.x = 0;
-        tp.y = 0;
-        this->defer([this, tp]() { this->send_touch_(tp); });
+//        tp.id = 0;
+//        tp.state = 5;
+//        tp.x = 0;
+//        tp.y = 0;
+//        this->defer([this, tp]() { this->send_touch_(tp); });
+        this->touches_.clear();
+        this->was_touched_ = false;
+        this->first_touch_ = true;
+        this->add_raw_touch_position_(5, 0, 0);
         ESP_LOGD(TAG, "calibration 3");
       }
       return;
@@ -135,11 +160,15 @@ void AR1021Component::loop() {
       ERROR_CHECK(err);
       if (std::equal(std::begin(buffer), std::end(buffer), std::begin(CALCONFIRM))) {
         calstate = 6;
-        tp.id = 0;
-        tp.state = 6;
-        tp.x = 0;
-        tp.y = 0;
-        this->defer([this, tp]() { this->send_touch_(tp); });
+//        tp.id = 0;
+//        tp.state = 6;
+//        tp.x = 0;
+//        tp.y = 0;
+//        this->defer([this, tp]() { this->send_touch_(tp); });
+        this->touches_.clear();
+        this->was_touched_ = false;
+        this->first_touch_ = true;
+        this->add_raw_touch_position_(6, 0, 0);
         ESP_LOGD(TAG, "calibration 4");
       }
       return;
@@ -158,9 +187,9 @@ void AR1021Component::loop() {
       return;
   }
 
-  if (!this->store_.touch)
-    return;
-  this->store_.touch = false;
+//  if (!this->store_.touch)
+//    return;
+//  this->store_.touch = false;
 
   uint8_t point = 0;
   uint8_t bigbuff[5] = {0};
@@ -169,46 +198,54 @@ void AR1021Component::loop() {
   err = this->read(bigbuff, 5);
   ERROR_CHECK(err);
  
-  tp.id = bigbuff[0];
-  tp.state = 0x09;
+  //tp.id = bigbuff[0];
+  //tp.state = 0x09;
   out = format_hex_pretty(bigbuff, 5);
   ESP_LOGD(TAG, "raw touch: %s", out.c_str());
 
   uint16_t y = (uint16_t) ((bigbuff[4] << 7) | (bigbuff[3]));
   uint16_t x = (uint16_t) ((bigbuff[2] << 7) | (bigbuff[1]));
 
-  tor = bigbuff[0] & 1;
-  y = (y * this->display_->get_height()) / 0xfff;
-  x = (x * this->display_->get_width()) / 0xfff;
+  //tor = bigbuff[0] & 1;
+  y = (y * this->display_->get_native_height()) / 0xfff;
+  x = (x * this->display_->get_native_width()) / 0xfff;
 
   ESP_LOGD(TAG, "touch x %d", x);
   ESP_LOGD(TAG, "touch y %d", y);
+  ESP_LOGD(TAG, "pen %d", (bigbuff[0] - 128));
 
-  switch (this->rotation_) {
-    case ROTATE_0_DEGREES:
-      tp.y = y;
-      tp.x = x;
-      break;
-    case ROTATE_90_DEGREES:
-      tp.x = this->display_height_ - y;
-      tp.y = x;
-      break;
-    case ROTATE_180_DEGREES:
-      tp.y = this->display_height_ - y;
-      tp.x = this->display_width_ - x;
-      break;
-    case ROTATE_270_DEGREES:
-      tp.x = y;
-      tp.y = this->display_width_ - x;
-      break;
-  }
+  if ((bigbuff[0] - 128) == 1) {
+    this->touches_.clear();
+    this->was_touched_ = false;
+    this->first_touch_ = true;
+    this->add_raw_touch_position_(0, x, y);
+  }  
+
+//  switch (this->rotation_) {
+//    case ROTATE_0_DEGREES:
+//      tp.y = y;
+//      tp.x = x;
+//      break;
+//    case ROTATE_90_DEGREES:
+//      tp.x = this->display_height_ - y;
+//      tp.y = x;
+//      break;
+//    case ROTATE_180_DEGREES:
+//      tp.y = this->display_height_ - y;
+//      tp.x = this->display_width_ - x;
+//      break;
+//    case ROTATE_270_DEGREES:
+//      tp.x = y;
+//      tp.y = this->display_width_ - x;
+//      break;
+//  }
   
-  if (tor) {
-    this->defer([this, tp]() { this->send_touch_(tp); });
-  } else {
-    for (auto *listener : this->touch_listeners_)
-      listener->release();
-  }
+//  if (tor) {
+//    this->defer([this, tp]() { this->send_touch_(tp); });
+//  } else {
+//    for (auto *listener : this->touch_listeners_)
+//      listener->release();
+//  }
 
   this->status_clear_warning();  
 }
@@ -217,6 +254,7 @@ void AR1021Component::dump_config() {
   ESP_LOGCONFIG(TAG, "AR1021 Touchscreen:");
   LOG_I2C_DEVICE(this);
   LOG_PIN("Interrupt Pin: ", this->interrupt_pin_);
+  //this->setup();
 }
 
 void AR1021Component::calibrate() {
