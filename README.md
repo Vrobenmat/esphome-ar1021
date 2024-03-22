@@ -117,7 +117,7 @@ touchscreen:
             id(tscalstate) = touch.state;
         - if:
             condition:
-              lambda: return id(tscal) == 0;
+              lambda: return id(tscal) >= 1;
             then:
               - lambda: ESP_LOGD("ar1021.cal", "%d", id(tscal));
               - display.page.show_next: lcd
